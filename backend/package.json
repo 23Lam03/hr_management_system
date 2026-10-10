@@ -1,0 +1,53 @@
+{
+  "name": "hrm-backend",
+  "version": "0.1.0",
+  "description": "HR Management System - Backend API",
+  "type": "module",
+  "main": "src/server.js",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "syntax-check": "node --check src/server.js && node --check src/app.js && node --check src/config/database.js && node --check src/config/env.js && node --check src/lib/logger.js && node --check src/lib/metrics.js && node --check src/lib/alertSink.js && node --check src/lib/metrics.middleware.js && node --check src/lib/testDbGuard.js && node --check src/lib/secretPatterns.js && node --check src/middlewares/error.middleware.js && node --check src/middlewares/auth.middleware.js && node --check src/middlewares/security.middleware.js && node --check src/middlewares/requestContext.middleware.js && node --check src/routes/health.routes.js && node --check src/routes/auth.routes.js && node --check src/routes/employee.routes.js && node --check src/routes/department.routes.js && node --check src/routes/position.routes.js && node --check src/routes/attendance.routes.js && node --check src/routes/leaveRequest.routes.js && node --check src/routes/payroll.routes.js && node --check src/routes/dashboard.routes.js && node --check src/routes/auditLog.routes.js && node --check src/routes/notification.routes.js && node --check src/routes/metrics.routes.js && node --check src/controllers/auth.controller.js && node --check src/controllers/employee.controller.js && node --check src/controllers/department.controller.js && node --check src/controllers/position.controller.js && node --check src/controllers/attendance.controller.js && node --check src/controllers/leaveRequest.controller.js && node --check src/controllers/payroll.controller.js && node --check src/controllers/dashboard.controller.js && node --check src/controllers/auditLog.controller.js && node --check src/controllers/notification.controller.js && node --check src/services/auth.service.js && node --check src/services/employee.service.js && node --check src/services/department.service.js && node --check src/services/position.service.js && node --check src/services/attendance.service.js && node --check src/services/leaveRequest.service.js && node --check src/services/payroll.service.js && node --check src/services/dashboard.service.js && node --check src/services/auditLog.service.js && node --check src/services/notification.service.js && node --check src/validators/auth.validator.js && node --check src/validators/employee.validator.js && node --check src/validators/department.validator.js && node --check src/validators/position.validator.js && node --check src/validators/attendance.validator.js && node --check src/validators/leaveRequest.validator.js && node --check src/validators/payroll.validator.js && node --check src/validators/dashboard.validator.js && node --check src/validators/auditLog.validator.js && node --check src/validators/notification.validator.js && node --check src/models/user.model.js && node --check src/models/employee.model.js && node --check src/models/department.model.js && node --check src/models/position.model.js && node --check src/models/attendance.model.js && node --check src/models/leaveRequest.model.js && node --check src/models/payroll.model.js && node --check src/models/auditLog.model.js && node --check src/models/notification.model.js && node --check src/models/session.model.js && node --check src/models/index.js",
+    "test": "TEST_MONGODB_URI=mongodb://127.0.0.1:27017/hrm_test_db NODE_ENV=test node --test --test-reporter=spec --test-concurrency=1 tests/",
+    "test:guard": "node -e \"import('./src/lib/testDbGuard.js').then(m => { m.resolveAndValidateTestUri(); console.log('[test-db-guard] OK'); })\"",
+    "security:audit": "node scripts/security-audit.js",
+    "security:audit:json": "node scripts/security-audit.js --json",
+    "secret:scan": "node scripts/secret-scan.js",
+    "release:check": "node scripts/release-gate.js",
+    "ci:syntax": "npm run syntax-check",
+    "ci:test": "npm test",
+    "ci:audit": "npm run security:audit",
+    "ci:secret-scan": "npm run secret:scan"
+  },
+  "keywords": [
+    "hrm",
+    "express",
+    "mongoose"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "bcrypt": "^5.1.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.22.3",
+    "express-rate-limit": "^7.5.1",
+    "helmet": "^8.3.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.24.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  },
+  "overrides": {
+    "tar": "^7.5.22",
+    "@mapbox/node-pre-gyp": "^2.0.3",
+    "chokidar": "^4.0.3"
+  },
+  "allowScripts": {
+    "bcrypt@5.1.1": true
+  }
+}

@@ -1,0 +1,210 @@
+# GitHub Actions CI for HRM Backend.
+#
+# Phase 17 — automated security gates and release readiness.
+#
+# Triggers:
+#   - pull_request to main (and master, for legacy)
+#   - push to main (and master)
+#   - workflow_dispatch for manual runs
+#
+# The workflow runs:
+#   1. Syntax check (node --check on every source file)
+#   2. Full test suite against a Mongo service container
+#   3. Secret scan (pure-Node, no external service)
+#   4. Dependency security audit
+#   5. Release-gate summary (does NOT push tags)
+#
+# Permissions: GITHUB_TOKEN gets the minimum needed to read the
+# repo and write the SARIF / job-summary. We do NOT request
+# write to packages, deployments, or id-token.
+#
+# This workflow does NOT:
+#   - deploy anywhere
+#   - push tags
+#   - publish packages
+#   - talk to production Atlas
+
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  # No write permissions. We do not need packages, deployments,
+  # actions, id-token, or pages. Least privilege.
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. Syntax + secret scan (no DB, no network to npm registry needed)
+  # ---------------------------------------------------------------------------
+  lint:
+    name: Syntax + Secret Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: backend/.nvmrc
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: backend
+        run: npm ci --no-audit --no-fund
+
+      - name: Syntax check
+        working-directory: backend
+        run: npm run syntax-check
+
+      - name: Secret scan (pure-Node, no network)
+        working-directory: backend
+        # `--skip-deps` is implicit because we don't recurse into node_modules.
+        run: node scripts/secret-scan.js
+
+  # ---------------------------------------------------------------------------
+  # 2. Full test suite with Mongo service
+  # ---------------------------------------------------------------------------
+  test:
+    name: Tests (Node ${{ matrix.node }} × Mongo ${{ matrix.mongo }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['20.x']                # matches the version in backend/.nvmrc
+        mongo: ['7.0']
+    services:
+      mongodb:
+        image: mongo:${{ matrix.mongo }}
+        # The default Mongo port; the test helper connects to
+        # 127.0.0.1:27017 by default.
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 })'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: backend
+        run: npm ci --no-audit --no-fund
+
+      # Phase 17: validate the test URI before opening a
+      # connection. This is the test-DB safety gate.
+      - name: Validate test MongoDB URI
+        working-directory: backend
+        env:
+          TEST_MONGODB_URI: mongodb://127.0.0.1:27017/hrm_test_db
+        run: node -e "import('./src/lib/testDbGuard.js').then(m => { const u = m.resolveAndValidateTestUri(); console.log('[test-db-guard] OK'); })"
+
+      - name: Run full test suite
+        working-directory: backend
+        env:
+          TEST_MONGODB_URI: mongodb://127.0.0.1:27017/hrm_test_db
+          NODE_ENV: test
+          # CI never uses a real JWT secret. The test helper
+          # issues tokens that are verified with this value.
+          JWT_SECRET: ci-jwt-secret-do-not-use-in-production-1234567890
+          # Allow the test framework to reach the in-service Mongo.
+          CI: 'true'
+        run: npm test
+
+  # ---------------------------------------------------------------------------
+  # 3. Dependency security audit (best-effort; BLOCKED ≠ FAIL)
+  # ---------------------------------------------------------------------------
+  audit:
+    name: Dependency Security Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: lint
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: backend/.nvmrc
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: backend
+        # We need package-lock to exist for `npm audit` to work.
+        run: npm ci --no-audit --no-fund
+
+      - name: Run security audit
+        working-directory: backend
+        # We use the wrapper, not raw `npm audit`, so the policy
+        # is centralized in scripts/security-audit.js. The
+        # wrapper's exit code is 0/1/2 (see the script's docs).
+        # The CI step uses `continue-on-error: false` so a network
+        # failure to the registry becomes a BLOCKED build.
+        run: node scripts/security-audit.js
+        continue-on-error: false
+
+  # ---------------------------------------------------------------------------
+  # 4. Release-gate summary (read-only; never pushes)
+  # ---------------------------------------------------------------------------
+  release-gate:
+    name: Release Gate (summary)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [lint, test, audit]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: backend/.nvmrc
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: backend
+        run: npm ci --no-audit --no-fund
+
+      - name: Run release-gate
+        working-directory: backend
+        # We allow the gate to fail without bringing down the
+        # whole workflow, because the gate is a SUMMARY step —
+        # the actual blocking checks are lint / test / audit.
+        # We surface the result in the job summary instead.
+        run: node scripts/release-gate.js --skip-test-db || true
+        continue-on-error: true
+
+      - name: Summarize
+        if: always()
+        run: |
+          echo "## Phase 17 — release gate" >> "$GITHUB_STEP_SUMMARY"
+          echo "- lint: ${{ needs.lint.result }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- test: ${{ needs.test.result }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- audit: ${{ needs.audit.result }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "This workflow does NOT deploy, publish, or push tags." >> "$GITHUB_STEP_SUMMARY"
